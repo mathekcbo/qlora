@@ -95,7 +95,7 @@ class DataArguments:
     )
     dataset_format: Optional[str] = field(
         default=None,
-        metadata={"help": "Which dataset format is used. [alpaca|chip2|self-instruct|hh-rlhf]"}
+        metadata={"help": "Which dataset format is used. [alpaca|chip2|self-instruct|hh-rlhf|rawtext]"}
     )
 
 @dataclass
@@ -530,14 +530,65 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
             raise NotImplementedError("Vicuna data was not released.")
         else:
             if os.path.exists(dataset_name):
-                try:
-                    args.dataset_format = args.dataset_format if args.dataset_format else "input-output"
-                    full_dataset = local_dataset(dataset_name)
-                    return full_dataset
-                except:
-                    raise ValueError(f"Error loading dataset from {dataset_name}")
+                if args.dataset_format == 'rawtext':
+                    with open(args.dataset_name, 'r', encoding='utf-8') as f:
+                        full_dataset = f.read().replace('\r', '')
+                    cut_string = '\n\n'
+                    out_tokens = []
+                    for text_part in full_dataset.split(cut_string):
+                        if text_part.strip() == '':
+                            continue
+
+                        tokens = tokenizer.encode(text_part)
+                        step = 512 - 128
+                        if step <= 0:
+                            yield f"Error: overlap_len (128) cannot be greater than or equal to cutoff_len (512)"
+                            return
+
+                        tokens = list(split_chunks(tokens, step))
+                        for i in range(1, len(tokens)):
+                            tokens[i] = tokens[i - 1][-128:] + tokens[i]
+
+                        out_tokens.extend(tokens)
+                        del tokens
+
+                    del full_dataset  # free memory
+                    text_chunks = [tokenizer.decode(x) for x in out_tokens]
+                    del out_tokens
+
+                    return Dataset.from_list([tokenize(x) for x in text_chunks])
+                else:
+                    try:
+                        args.dataset_format = args.dataset_format if args.dataset_format else "input-output"
+                        full_dataset = local_dataset(dataset_name)
+                        return full_dataset
+                    except:
+                        raise ValueError(f"Error loading dataset from {dataset_name}")
             else:
                 raise NotImplementedError(f"Dataset {dataset_name} not implemented yet.")
+
+    def tokenize(prompt):
+
+        input_ids = encode(prompt, True)
+        input_ids = [tokenizer.pad_token_id] * (512 - len(input_ids)) + input_ids
+        labels = [1] * len(input_ids)
+
+        input_ids = torch.tensor(input_ids)
+        return {
+            "input_ids": input_ids,
+            "labels": labels,
+            "attention_mask": input_ids.ne(tokenizer.pad_token_id),
+        }
+
+    def encode(text, add_bos_token):
+        result = tokenizer.encode(text, truncation=True, max_length=512)
+        if not add_bos_token and result[0] == tokenizer.bos_token_id:
+            result = result[1:]
+        return result
+
+    def split_chunks(arr, step):
+        for i in range(0, len(arr), step):
+            yield arr[i:i + step]
 
     def format_dataset(dataset, dataset_format):
         if (
