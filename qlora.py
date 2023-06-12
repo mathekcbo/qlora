@@ -510,79 +510,39 @@ def local_dataset(dataset_name):
 
 
 def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
-    """
-    Make dataset and collator for supervised fine-tuning.
-    Datasets are expected to have the following columns: { `input`, `output` }
 
-    Available datasets to be selected with `dataset` argument:
-        - alpaca, 52002 examples
-        - alpaca cleaned, 51942 examples
-        - chip2 (OIG), 210289 examples
-        - self-instruct, 82612 examples
-        - hh-rlhf (Anthropic), 160800 examples
-        - longform, 23.7k examples
-        - oasst1 (OpenAssistant) primary message tree only, 9,846 examples
-
-    Coming soon:
-        - unnatural instructions core, 66010 examples
-        - unnatural instructions full, 240670 examples
-        - alpaca-gpt4, 52002 examples
-        - unnatural-instructions-gpt4, 9000 examples
-        - supernatural-instructions, 69624 examples (same as paper with 100 ex/task more can be used)
-        - flan (FLAN v2), up to 20M examples available
-        - vicuna
-
-    """
-
-    def load_data(dataset_name):
+    def load_data(dataset_name) -> Dataset:
         print('loading dataset ...')
-        if dataset_name == 'alpaca':
-            return load_dataset("tatsu-lab/alpaca")
-        elif dataset_name == 'alpaca-clean':
-            return load_dataset("yahma/alpaca-cleaned")
-        elif dataset_name == 'chip2':
-            return load_dataset("laion/OIG", data_files='unified_chip2.jsonl')
-        elif dataset_name == 'self-instruct':
-            return load_dataset("yizhongw/self_instruct", name='self_instruct')
-        elif dataset_name == 'hh-rlhf':
-            return load_dataset("Anthropic/hh-rlhf")
-        elif dataset_name == 'longform':
-            return load_dataset("akoksal/LongForm")
-        elif dataset_name == 'oasst1':
-            return load_dataset("timdettmers/openassistant-guanaco")
-        elif dataset_name == 'vicuna':
-            raise NotImplementedError("Vicuna data was not released.")
-        else:
-            print('opening dataset-file...')
-            with open(f'{dataset_name}', 'r', encoding='utf-8') as f:
-                full_dataset = f.read().replace('\r', '')
-            cut_string = '\n\n'
-            out_tokens = []
-            for text_part in full_dataset.split(cut_string):
-                if text_part.strip() == '':
-                    continue
+        print('opening dataset-file...')
+        with open(f'{dataset_name}', 'r', encoding='utf-8') as f:
+            full_dataset = f.read().replace('\r', '')
+        cut_string = '\n\n'
+        out_tokens = []
+        for text_part in full_dataset.split(cut_string):
+            if text_part.strip() == '':
+                continue
 
-                tokens = tokenizer.encode(text_part)
-                step = 512 - 128
-                if step <= 0:
-                    yield f"Error: overlap_len (128) cannot be greater than or equal to cutoff_len (512)"
-                    return
+            tokens = tokenizer.encode(text_part)
+            step = 512 - 128
+            if step <= 0:
+                print( f"Error: overlap_len (128) cannot be greater than or equal to cutoff_len (512)")
+                raise NotImplementedError("nonsense data was not released.")
 
-                tokens = list(split_chunks(tokens, step))
-                for i in range(1, len(tokens)):
-                    tokens[i] = tokens[i - 1][-128:] + tokens[i]
+            tokens = list(split_chunks(tokens, step))
+            for i in range(1, len(tokens)):
+                tokens[i] = tokens[i - 1][-128:] + tokens[i]
 
-                out_tokens.extend(tokens)
-                del tokens
+            out_tokens.extend(tokens)
+            del tokens
 
-            del full_dataset  # free memory
-            text_chunks = [tokenizer.decode(x) for x in out_tokens]
-            del out_tokens
+        del full_dataset  # free memory
+        text_chunks = [tokenizer.decode(x) for x in out_tokens]
+        del out_tokens
 
-            full_dataset = Dataset.from_list([tokenize(x) for x in text_chunks])
-            print('full_dataset...')
-            print(full_dataset)
-            return full_dataset
+        full_dataset = Dataset.from_list([tokenize(x) for x in text_chunks])
+        print('full_dataset...')
+        print(full_dataset)
+        return full_dataset
 
     def tokenize(prompt):
         input_ids = encode(prompt, True)
@@ -608,8 +568,8 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
 
     def format_dataset(dataset, dataset_format):
         if (
-            dataset_format == 'alpaca' or dataset_format == 'alpaca-clean' or
-            (dataset_format is None and args.dataset in ['alpaca', 'alpaca-clean'])
+                dataset_format == 'alpaca' or dataset_format == 'alpaca-clean' or
+                (dataset_format is None and args.dataset in ['alpaca', 'alpaca-clean'])
         ):
             dataset = dataset.map(extract_alpaca_dataset, remove_columns=['instruction'])
         elif dataset_format == 'chip2' or (dataset_format is None and args.dataset == 'chip2'):
@@ -641,18 +601,15 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         return dataset
 
     # Load dataset.
+    print('trying to load data')
     dataset = load_data(args.dataset)
+    print('trying to format data')
     dataset = format_dataset(dataset, args.dataset_format)
 
     train_dataset = dataset
 
-    data_collator = DataCollatorForCausalLM(
-        tokenizer=tokenizer,
-        source_max_len=args.source_max_len,
-        target_max_len=args.target_max_len,
-        train_on_source=args.train_on_source,
-        predict_with_generate=args.predict_with_generate,
-    )
+    data_collator = transformers.DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    print('data initialized')
     return dict(
         train_dataset=train_dataset if args.do_train else None,
         eval_dataset=None,
@@ -726,10 +683,11 @@ def train():
                 model.config.pad_token_id if model.config.pad_token_id != -1 else tokenizer.pad_token_id
             ),
         })
+    print('making data module')
     data_module = make_data_module(tokenizer=tokenizer, args=args)
     print('checking train_data ...')
     print(data_module['train_dataset'])
-    trainer = Seq2SeqTrainer(
+    trainer = transformers.Trainer(
         model=model,
         tokenizer=tokenizer,
         args=training_args,
