@@ -251,9 +251,9 @@ class SavePeftModelCallback(transformers.TrainerCallback):
         self.ds_step = 0
 
     def on_step_begin(self, args: transformers.TrainingArguments, state: transformers.TrainerState, control: transformers.TrainerControl, **kwargs):
+        self.ds_step = self.current_step * args.per_device_train_batch_size * args.gradient_accumulation_steps
         self.current_step += 1
-        self.ds_step = self.current_step * args.per_device_train_batch_size
-        print(f'doing step {self.current_step}, dataset-record {self.ds_step} ..')
+        print(f'doing step {self.current_step}, dataset-record {self.ds_step} ...')
 
     def save_model(self, args, state, kwargs):
         print('Saving PEFT checkpoint...')
@@ -525,7 +525,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
         print('opening dataset-file...')
         with open(f'{dataset_name}', 'r', encoding='utf-8') as f:
             full_dataset = f.read().replace('\r', '')
-        cut_string = '\n\n+++\n\n'
+        cut_string = '\n\n#'
         out_tokens = []
         counter = 0
         for text_part in full_dataset.split(cut_string):
