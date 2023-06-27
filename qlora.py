@@ -102,6 +102,7 @@ class DataArguments:
 
 @dataclass
 class TrainingArguments(transformers.Seq2SeqTrainingArguments):
+    stop_at_loss: Optional[float] = field(default=1.2, metadata={"help": 'when to stop'})
     cache_dir: Optional[str] = field(
         default=None
     )
@@ -280,6 +281,14 @@ class SavePeftModelCallback(transformers.TrainerCallback):
 
         touch(join(args.output_dir, 'completed'))
         self.save_model(args, state, kwargs)
+
+    def on_log(self, args: transformers.TrainingArguments, state: transformers.TrainerState, control: transformers.TrainerControl, logs, **kwargs):
+        if 'loss' in logs:
+            loss = float(logs['loss'])
+            if loss <= stop_at_loss:
+                control.should_epoch_stop = True
+                control.should_training_stop = True
+                print(f"\033[1;31;1mStop Loss {stop_at_loss} reached.\033[0;37;0m")
 
 
 def get_accelerate_model(args, checkpoint_dir):
