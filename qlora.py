@@ -98,6 +98,10 @@ class DataArguments:
         default=None,
         metadata={"help": "Which dataset format is used. [alpaca|chip2|self-instruct|hh-rlhf|rawtext]"}
     )
+    rawtext_delimiter: Optional[str] = field(
+        default='\n\n#',
+        metadata={"help": "Delimiter for splitting text"}
+    )
 
 
 @dataclass
@@ -529,12 +533,12 @@ def local_dataset(dataset_name):
 
 def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
 
-    def load_data(dataset_name) -> Dataset:
+    def load_data(dataset_name, delimiter) -> Dataset:
         print('loading dataset ...')
         print('opening dataset-file...')
         with open(f'{dataset_name}', 'r', encoding='utf-8') as f:
             full_dataset = f.read().replace('\r', '')
-        cut_string = '\n\n#'
+        cut_string = delimiter
         out_tokens = []
         counter = 0
         for text_part in full_dataset.split(cut_string):
@@ -622,7 +626,7 @@ def make_data_module(tokenizer: transformers.PreTrainedTokenizer, args) -> Dict:
 
     # Load dataset.
     print('trying to load data')
-    dataset = load_data(args.dataset)
+    dataset = load_data(args.dataset, args.rawtext_delimiter)
     print('trying to format data')
     dataset = format_dataset(dataset, args.dataset_format)
 
