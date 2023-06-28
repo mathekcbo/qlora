@@ -289,10 +289,10 @@ class SavePeftModelCallback(transformers.TrainerCallback):
     def on_log(self, args: transformers.TrainingArguments, state: transformers.TrainerState, control: transformers.TrainerControl, logs, **kwargs):
         if 'loss' in logs:
             loss = float(logs['loss'])
-            if loss <= stop_at_loss:
+            if loss <= args.stop_at_loss:
                 control.should_epoch_stop = True
                 control.should_training_stop = True
-                print(f"\033[1;31;1mStop Loss {stop_at_loss} reached.\033[0;37;0m")
+                print(f"\033[1;31;1mStop Loss {args.stop_at_loss} reached.\033[0;37;0m")
 
 
 def get_accelerate_model(args, checkpoint_dir):
